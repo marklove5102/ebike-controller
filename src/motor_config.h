@@ -73,6 +73,11 @@
 #define BATTERY_MAX_CURRENT_B      8000
 #define BATTERY_MAX_REGEN_MV      44000
 
+// Wheel speed sensor debounce time, in control ticks
+#define WHEEL_SENSOR_DEBOUNCE      100
+
+// Wheel speed acceleration filter time
+#define WHEEL_ACCEL_FILTER_TIME    0.5f
 
 // Maximum acceleration, as time in seconds from 0 to max RPM
 // #define MOTOR_MIN_ACCEL_TIME    5.0f
@@ -82,6 +87,7 @@
 // #define MOTOR_NEWTON_PER_A         5.0f
 // #define BIKE_WEIGHT_KG           100.0f
 #define BIKE_MIN_VELOCITY          0.2f
+#define BIKE_SOFTSTART_VELOCITY    1.0f
 #define BIKE_MAX_VELOCITY          7.5f
 #define BIKE_BRAKE_THRESHOLD_M_S2  1.0f
 #define BIKE_BRAKE_THRESHOLD_B_M_S2  5.0f

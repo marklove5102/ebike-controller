@@ -43,11 +43,12 @@ static float g_accel_history[32];
 static uint32_t g_accel_history_index;
 static float g_prev_pedal_accel;
 static float g_prev_hill_accel;
-static float g_pedal_bandpass[8];
+static float g_pedal_bandpass[16];
 
 // Detect acceleration due to pedalling with a bandpass filter.
 // Cycling cadence is 30-100 RPM, peak twice per cycle
 // => bandpass filter 1-3 Hz at different offsets and compute amplitude
+// The filter runs at 10 Hz
 float get_pedalling_bandpass()
 {
   const int filter[15] = {  1809,  134,  253,  3136,  -3360,  -9522,  1982,  13649,  1982,  -9522,  -3360,  3136,  253,  134,  1809 };
@@ -60,17 +61,17 @@ float get_pedalling_bandpass()
   }
   bandpass /= 32768.0f;
   
-  // Calculate RMS sum over past 8 bandpass results
+  // Calculate RMS sum over past 16 bandpass results
   float rms = bandpass * bandpass;
-  for (int i = 0; i < 7; i++)
+  for (int i = 0; i < 15; i++)
   {
     rms += g_pedal_bandpass[i] * g_pedal_bandpass[i];
     g_pedal_bandpass[i+1] = g_pedal_bandpass[i];
   }
   g_pedal_bandpass[0] = bandpass;
   
-  // Calculate peak amplitude: sqrt(sum / 8) * sqrt(2)
-  float amplitude = __builtin_sqrtf(rms / 4);
+  // Calculate peak amplitude: sqrt(sum / 16) * sqrt(2)
+  float amplitude = __builtin_sqrtf(rms / 8);
   return amplitude;
 }
 
@@ -270,7 +271,8 @@ static void state_powered()
 
   // Detect if the wheel stops
   static int stall_count;
-  if (g_motor_current > 0 && (motor_orientation_get_rpm() < 60 || !motor_orientation_in_sync()))
+  if ((g_motor_current > 0 && (motor_orientation_get_rpm() < 60 || !motor_orientation_in_sync()))
+      || wheel_velocity < BIKE_MIN_VELOCITY)
   {
     stall_count++;
   }
@@ -279,9 +281,7 @@ static void state_powered()
     stall_count = 0;
   }
   
-  if (stall_count > 500 ||
-      (wheel_velocity < BIKE_MIN_VELOCITY && g_system_state.wheel_speed_ticks_per_rotation >= 6) ||
-      motor_orientation_get_rpm() < -100)
+  if (stall_count > 200)
   {
     // Wheel is stopped or rotating in reverse
     g_motor_current = 0.0f;
@@ -297,7 +297,7 @@ static void state_powered()
   if (g_acceleration < -BIKE_BRAKE_THRESHOLD_B_M_S2 || wheel_accel < -BIKE_BRAKE_THRESHOLD_M_S2)
   {
     // Soft braking
-    decay_time = 0.2f;
+    decay_time = 0.5f;
     target_current = 0.0f;
   }
   else
@@ -359,6 +359,14 @@ static void state_powered()
     {
       target_current *= exceed / 2.0f;
     }
+  }
+  else if (wheel_velocity < BIKE_SOFTSTART_VELOCITY)
+  {
+    // Softstart assist at low speeds
+    float ratio = wheel_velocity / BIKE_SOFTSTART_VELOCITY;
+    if (ratio < 0.2f) ratio = 0.2f;
+    target_current *= ratio;
+    decay_time = 1.0f;
   }
   
   if (g_motor_current < BIKE_SOFTSTART_A && g_motor_current < target_current)
@@ -589,7 +597,8 @@ static void bike_control_thread(void *p)
 
   for (;;)
   {
-    /* Wait for a new reading from sensors */
+    /* Wait for a new reading from sensors.
+     * This runs at approx 100 Hz */
     chEvtWaitAny(ALL_EVENTS);
     
     int x, y, z;

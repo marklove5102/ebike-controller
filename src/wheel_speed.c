@@ -12,9 +12,11 @@ static int g_wheel_tickcount;
 static int g_wheel_sensor_debounce;
 static int g_time_since_rising;
 static int g_previous_interval;
-static float g_velocity_filtered;
 static bool g_previous_state;
 static int g_previous_interval_history[6];
+
+static float g_velocity_filtered1;
+static float g_velocity_filtered2;
 
 static float meters_per_tick()
 {
@@ -43,32 +45,34 @@ float wheel_speed_get_velocity()
 
 float wheel_speed_get_acceleration()
 {
-  if (g_system_state.wheel_speed_ticks_per_rotation < 6)
-  {
-    // Can't get reliable acceleration with this few ticks
-    return 0.0f;
-  }
+  return (g_velocity_filtered1 - g_velocity_filtered2) / WHEEL_ACCEL_FILTER_TIME;
 
-  float sum_accel = 0.0f;
-  float min = 99999.0f;
-  float max = -99999.0f;
-  for (int i = 0; i < 5; i++)
-  {
-    float speed1 = interval_to_velocity(g_previous_interval_history[i]);
-    float speed2 = interval_to_velocity(g_previous_interval_history[i+1]);
-    float time = (g_previous_interval_history[i] + g_previous_interval_history[i + 1]) / (2.0f * CONTROL_FREQ);
-    float accel = (time > 0.01f) ? ((speed1 - speed2) / time) : 0.0f;
-    sum_accel += accel;
+  // if (g_system_state.wheel_speed_ticks_per_rotation < 6)
+  // {
+  //   // Can't get reliable acceleration with this few ticks
+  //   return 0.0f;
+  // }
 
-    if (min > accel) min = accel;
-    if (max < accel) max = accel;
-  }
+  // float sum_accel = 0.0f;
+  // float min = 99999.0f;
+  // float max = -99999.0f;
+  // for (int i = 0; i <= 4; i++)
+  // {
+  //   float speed1 = interval_to_velocity(g_previous_interval_history[i]);
+  //   float speed2 = interval_to_velocity(g_previous_interval_history[i+1]);
+  //   float time = (g_previous_interval_history[i] + g_previous_interval_history[i + 1]) / (2.0f * CONTROL_FREQ);
+  //   float accel = (time > 0.01f) ? ((speed1 - speed2) / time) : 0.0f;
+  //   sum_accel += accel;
+
+  //   if (min > accel) min = accel;
+  //   if (max < accel) max = accel;
+  // }
   
-  // Discard min and max values for outliers
-  sum_accel -= min;
-  sum_accel -= max;
+  // // Discard min and max values for outliers
+  // sum_accel -= min;
+  // sum_accel -= max;
 
-  return sum_accel / 5.0f;
+  // return sum_accel / 3.0f;
 }
 
 int wheel_speed_get_distance()
@@ -84,7 +88,7 @@ int wheel_speed_get_tickcount()
 void wheel_speed_update()
 {
   bool state = palReadPad(GPIOC, GPIOC_WHEEL_SPEED);
-  const int threshold = 25;
+  const int threshold = WHEEL_SENSOR_DEBOUNCE / 2;
   
   if (state && g_wheel_sensor_debounce < threshold)
   {
@@ -107,14 +111,22 @@ void wheel_speed_update()
     g_wheel_tickcount++;
     g_time_since_rising = 0;
     g_previous_state = true;
+    g_wheel_sensor_debounce = threshold;
   }
   else if (g_wheel_sensor_debounce <= -threshold && g_previous_state)
   {
     // Falling edge
     g_previous_state = false;
+    g_wheel_sensor_debounce = -threshold;
   }
 
   g_time_since_rising++;
+
+  // Update filters for acceleration estimation
+  float velocity = wheel_speed_get_velocity();
+  float decay = 1.0f / (WHEEL_ACCEL_FILTER_TIME * CONTROL_FREQ);
+  g_velocity_filtered1 += (velocity - g_velocity_filtered1) * decay;
+  g_velocity_filtered2 += (velocity - g_velocity_filtered2) * decay;
 }
 
 
